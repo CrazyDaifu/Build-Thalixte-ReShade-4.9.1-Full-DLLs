@@ -1,90 +1,82 @@
 name: Build Thalixte ReShade 4.9.1 Full DLLs
 on:
-  workflow_dispatch: # 手动触发（推荐，避免无效编译）
+  workflow_dispatch:
   push:
     branches: [ master ]
 
 jobs:
   build-reshade:
-    runs-on: windows-2022 # VS2022环境，完美兼容老版本VC项目
+    runs-on: windows-2022
     defaults:
       run:
         shell: powershell
         working-directory: ${{ github.workspace }}
     steps:
-      # 步骤1：检出完整源码 + 递归拉取所有子模块（必须！deps依赖全在子模块里）
-      - name: Checkout Full Source Code
+      # Step 1: Checkout full source code with all submodules
+      - name: Checkout Source Code
         uses: actions/checkout@v4
         with:
           submodules: recursive
           fetch-depth: 0
+          clean: true
 
-      # 步骤2：安装Python（必须！用于生成gl3w依赖的代码，否则编译会缺头文件）
-      - name: Setup Python 3.x
+      # Step 2: Setup Python for gl3w dependency generation
+      - name: Setup Python 3.10
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
           architecture: 'x64'
 
-      # 步骤3：生成gl3w依赖代码（ReShade 4.x必须前置步骤）
+      # Step 3: Generate gl3w binding code (required for ReShade 4.x build)
       - name: Generate gl3w Dependencies
         run: |
-          Set-Location deps/gl3w
-          python gl3w_gen.py
-          Write-Host "gl3w绑定代码生成完成"
+          if (Test-Path -Path "deps/gl3w") {
+            Set-Location deps/gl3w
+            python gl3w_gen.py
+            Write-Host "gl3w code generated successfully"
+          } else {
+            Write-Host "gl3w directory not found, skip generation (submodule may be missing)"
+            exit 1
+          }
 
-      # 步骤4：配置MSVC编译环境 + MSBuild工具
-      - name: Setup MSVC & MSBuild
+      # Step 4: Setup MSBuild for Visual Studio 2022
+      - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
         with:
-          vs-version: '[17.0,18.0)' # 锁定VS2022，兼容老版本项目
+          vs-version: '[17.0,18.0)'
           msbuild-architecture: x64
 
-      # 步骤5：编译32位Release版本（Win32，L4D2/起源引擎32位游戏专用）
-      - name: Build 32-bit (Win32) Release
+      # Step 5: Build 32-bit (Win32) Release
+      - name: Build 32-bit Release
         run: |
-          msbuild ReShade.sln `
-            /t:Build `
-            /p:Configuration=Release `
-            /p:Platform=Win32 `
-            /p:PreferredToolArchitecture=x64 `
-            /m:8 # 多线程编译加速
-          Write-Host "32位Release版本编译完成"
+          msbuild ReShade.sln /t:Build /p:Configuration=Release /p:Platform=Win32 /p:PreferredToolArchitecture=x64 /m:8
+          Write-Host "32-bit build completed"
 
-      # 步骤6：编译64位Release版本（x64，64位游戏专用）
-      - name: Build 64-bit (x64) Release
+      # Step 6: Build 64-bit (x64) Release
+      - name: Build 64-bit Release
         run: |
-          msbuild ReShade.sln `
-            /t:Build `
-            /p:Configuration=Release `
-            /p:Platform=x64 `
-            /p:PreferredToolArchitecture=x64 `
-            /m:8
-          Write-Host "64位Release版本编译完成"
+          msbuild ReShade.sln /t:Build /p:Configuration=Release /p:Platform=x64 /p:PreferredToolArchitecture=x64 /m:8
+          Write-Host "64-bit build completed"
 
-      # 步骤7：整理编译产物，分类打包
-      - name: Organize Build Artifacts
+      # Step 7: Organize build artifacts
+      - name: Organize Artifacts
         run: |
-          # 创建输出目录
           $outputRoot = "Thalixte_ReShade_4.9.1_Full_DLLs"
           New-Item -ItemType Directory -Force -Path "$outputRoot/32bit"
           New-Item -ItemType Directory -Force -Path "$outputRoot/64bit"
-
-          # 复制32位DLL（编译产物默认输出到bin/Win32/Release）
+          
           Copy-Item -Path "bin/Win32/Release/*.dll" -Destination "$outputRoot/32bit/" -Force
-          # 复制64位DLL（编译产物默认输出到bin/x64/Release）
           Copy-Item -Path "bin/x64/Release/*.dll" -Destination "$outputRoot/64bit/" -Force
-
-          # 输出文件清单，验证编译结果
-          Write-Host "===== 32位编译产物清单 ====="
+          
+          Write-Host "===== 32-bit Artifacts ====="
           Get-ChildItem "$outputRoot/32bit"
-          Write-Host "===== 64位编译产物清单 ====="
+          Write-Host "===== 64-bit Artifacts ====="
           Get-ChildItem "$outputRoot/64bit"
 
-      # 步骤8：上传可下载的编译产物包
-      - name: Upload Build Artifacts
+      # Step 8: Upload build artifacts
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: Thalixte_ReShade_4.9.1_Full_DLLs
           path: Thalixte_ReShade_4.9.1_Full_DLLs/
-          retention-days: 90 # 产物保留90天  
+          retention-days: 90

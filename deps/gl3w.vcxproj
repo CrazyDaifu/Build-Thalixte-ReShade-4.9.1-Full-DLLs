@@ -81,7 +81,7 @@
   <Target Name="CleanGL3WSources">
     <Delete Files="@(ClCompile);@(ClInclude);" />
   </Target>
-  <Target Name="GenerateGL3WSources" Condition="!Exists(@(ClCompile))">
+  <Target Name="GenerateGL3WSources" Condition="!Exists('gl3w\src\gl3w.c')">
     <Exec Command="python gl3w_gen.py" WorkingDirectory="gl3w\" />
   </Target>
 </Project>

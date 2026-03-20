@@ -4,8 +4,6 @@ on:
   push:
     branches: [ main, master ]
   workflow_dispatch:
-  schedule:
-    - cron: '0 0 * * *'
 
 jobs:
   build:
@@ -20,7 +18,19 @@ jobs:
     - name: Setup MSBuild
       uses: microsoft/setup-msbuild@v2
 
-    - name: Build ReShade 32-bit (No OpenGL)
+    - name: Disable gl3w generation (bypass 403 error)
+      shell: powershell
+      run: |
+        $dummyScript = @'
+#!/usr/bin/env python
+import sys
+print("gl3w_gen.py skipped - using pre-generated files")
+sys.exit(0)
+'@
+        Set-Content -Path "deps/gl3w/gl3w_gen.py" -Value $dummyScript -Encoding UTF8
+        Write-Host "gl3w_gen.py disabled"
+
+    - name: Build ReShade 32-bit
       shell: cmd
       run: |
         msbuild ReShade.sln ^
@@ -28,7 +38,6 @@ jobs:
           /p:Platform="32-bit" ^
           /p:WindowsTargetPlatformVersion=10.0.22000.0 ^
           /p:PlatformToolset=v143 ^
-          /p:RESHADE_NO_OPENGL=1 ^
           /t:"ReShade";"ReShade FX";"ImGui";"MinHook";"stb";"FXC";"Injector" ^
           /m ^
           /verbosity:minimal
@@ -59,17 +68,6 @@ jobs:
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: Thalixte-ReShade-32bit-NoGL
+        name: Thalixte-ReShade-32bit
         path: output_32bit/
         retention-days: 30
-
-    - name: Release
-      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
-      uses: softprops/action-gh-release@v1
-      with:
-        tag_name: win32-nogl-build-${{ github.run_number }}
-        name: Thalixte ReShade 32-bit (No OpenGL) Build ${{ github.run_number }}
-        files: output_32bit/*
-        prerelease: false
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

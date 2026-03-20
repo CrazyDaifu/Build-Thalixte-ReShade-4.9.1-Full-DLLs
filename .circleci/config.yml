@@ -1,0 +1,55 @@
+version: 2.1
+
+orbs:
+  windows: circleci/windows@5.0
+
+jobs:
+  build:
+    executor:
+      name: windows/default
+      size: large  # 4 vCPU, 15GB RAM，构建更快
+    
+    steps:
+      - checkout
+      
+      # 安装 VS2019 和兼容的 Windows SDK
+      - run:
+          name: Install VS2019 Build Tools
+          command: |
+            choco install visualstudio2019buildtools -y
+            choco install visualstudio2019-workload-vctools -y
+            choco install windows-sdk-10-version-1903-all -y  # 10.0.18362.0
+      
+      - run:
+          name: Clone submodules and prepare gl3w
+          command: |
+            git submodule update --init --recursive
+            # 删除有问题的 gl3w 子模块，创建空文件
+            Remove-Item -Recurse -Force deps/gl3w -ErrorAction SilentlyContinue
+            mkdir deps/gl3w/src, deps/gl3w/include/GL
+            "// Dummy" | Out-File deps/gl3w/src/gl3w.c
+            "#include <windows.h>`nint gl3wInit(){return 0;}" | Out-File deps/gl3w/src/gl3w.c
+            "import sys`nsys.exit(0)" | Out-File deps/gl3w/gl3w_gen.py
+      
+      - run:
+          name: Build 32-bit Release
+          command: |
+            & "C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\MSBuild\Current\Bin\MSBuild.exe" `
+              ReShade.sln `
+              /p:Configuration=Release `
+              /p:Platform=Win32 `
+              /p:PlatformToolset=v142 `
+              /t:ReShade `
+              /m
+      
+      - store_artifacts:
+          path: bin/Win32/Release/ReShade32.dll
+          destination: ReShade32-Thalixte.dll
+
+workflows:
+  build-and-store:
+    jobs:
+      - build:
+          filters:
+            branches:
+              only: main

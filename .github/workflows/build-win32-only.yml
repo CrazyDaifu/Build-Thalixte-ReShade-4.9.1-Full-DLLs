@@ -10,35 +10,66 @@ jobs:
     runs-on: windows-latest
     
     steps:
-    - name: Checkout with submodules
+    - name: Checkout without submodules
       uses: actions/checkout@v4
-      with:
-        submodules: recursive
+      # 关键：不递归子模块，避免 gl3w 子模块覆盖我们的文件
 
     - name: Setup MSBuild
       uses: microsoft/setup-msbuild@v2
 
+    - name: Create gl3w files structure
+      shell: powershell
+      run: |
+        # 创建目录（如果 GitHub 网页上传的文件没上来，就在这里创建空的）
+        New-Item -ItemType Directory -Force -Path "deps/gl3w/src"
+        New-Item -ItemType Directory -Force -Path "deps/gl3w/include/GL"
+        
+        # 创建空的 gl3w.c（只要能编译过就行，OpenGL 功能我们不用）
+        @"
+// Dummy gl3w.c for CI build
+#include <GL/gl3w.h>
+int gl3wInit(void) { return 0; }
+void gl3wShutdown(void) {}
+"@ | Set-Content "deps/gl3w/src/gl3w.c" -Encoding UTF8
+
+        # 创建空的头文件
+        @"
+// Dummy gl3w.h
+#ifndef GL3W_H
+#define GL3W_H
+#include <GL/glcorearb.h>
+int gl3wInit(void);
+void gl3wShutdown(void);
+#endif
+"@ | Set-Content "deps/gl3w/include/GL/gl3w.h" -Encoding UTF8
+
+        # 创建 glcorearb.h（最小实现）
+        @"
+// Dummy glcorearb.h
+#ifndef GLCOREARB_H
+#define GLCOREARB_H
+#include <windows.h>
+typedef unsigned int GLenum;
+typedef unsigned int GLuint;
+#endif
+"@ | Set-Content "deps/gl3w/include/GL/glcorearb.h" -Encoding UTF8
+
+        # 创建空的 gl3w_gen.py
+        "import sys`nprint('skipped')`nsys.exit(0)" | Set-Content "deps/gl3w/gl3w_gen.py"
+
+        Write-Host "Created dummy gl3w files"
+
     - name: Remove Windows SDK version restriction
       shell: powershell
       run: |
-        # 直接删除 WindowsTargetPlatformVersion 节点，使用系统默认最新版
         Get-ChildItem -Recurse -Filter "*.vcxproj" | ForEach-Object {
           $content = Get-Content $_.FullName -Raw
           $original = $content
-          # 删除整个 WindowsTargetPlatformVersion 节点
           $content = $content -replace '<WindowsTargetPlatformVersion>.*?</WindowsTargetPlatformVersion>\s*', ''
           if ($content -ne $original) {
             Set-Content $_.FullName $content -NoNewline
-            Write-Host "Fixed: $($_.Name)"
           }
         }
-
-    - name: Create dummy gl3w_gen.py
-      shell: cmd
-      run: |
-        echo import sys > deps/gl3w/gl3w_gen.py
-        echo print("gl3w_gen.py skipped") >> deps/gl3w/gl3w_gen.py
-        echo sys.exit(0) >> deps/gl3w/gl3w_gen.py
 
     - name: Build ReShade 32-bit
       shell: cmd

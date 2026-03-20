@@ -1,4 +1,4 @@
-name: Build Thalixte Reshade 32-bit
+name: Build Thalixte Reshade
 
 on:
   workflow_dispatch:
@@ -8,23 +8,70 @@ jobs:
     runs-on: windows-latest
     
     steps:
-    - uses: actions/checkout@v4
+    - name: Checkout with submodules
+      uses: actions/checkout@v4
       with:
         submodules: recursive
+        fetch-depth: 0
     
-    - uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-    
-    - uses: ilammy/msvc-dev-cmd@v1
+    - name: Setup MSVC
+      uses: ilammy/msvc-dev-cmd@v1
       with:
         arch: x86
     
-    - run: pip install Jinja2
+    - name: Find Solution File
+      shell: pwsh
+      run: |
+        # 查找解决方案文件
+        $sln = Get-ChildItem -Recurse -Filter "*.sln" | Select-Object -First 1
+        if ($sln) {
+          Write-Host "Found solution: $($sln.FullName)" -ForegroundColor Green
+          echo "SLN_PATH=$($sln.FullName)" >> $env:GITHUB_ENV
+        } else {
+          # 查找vcxproj
+          $proj = Get-ChildItem -Recurse -Filter "ReShade.vcxproj" | Select-Object -First 1
+          if ($proj) {
+            Write-Host "Found project: $($proj.FullName)" -ForegroundColor Green
+            echo "PROJ_PATH=$($proj.FullName)" >> $env:GITHUB_ENV
+          } else {
+            Write-Error "No solution or project file found!"
+            exit 1
+          }
+        }
     
-    - run: python tools\build.py --platform Win32 --configuration Release
+    - name: Restore NuGet packages
+      shell: pwsh
+      run: |
+        if (Test-Path "${{ env.SLN_PATH }}") {
+          nuget restore "${{ env.SLN_PATH }}"
+        }
     
-    - uses: actions/upload-artifact@v4
+    - name: Build Win32
+      shell: pwsh
+      run: |
+        if (Test-Path "${{ env.SLN_PATH }}") {
+          msbuild "${{ env.SLN_PATH }}" /p:Configuration=Release /p:Platform=Win32 /p:OutDir=bin\Release\
+        } elseif (Test-Path "${{ env.PROJ_PATH }}") {
+          msbuild "${{ env.PROJ_PATH }}" /p:Configuration=Release /p:Platform=Win32 /p:OutDir=bin\Release\
+        }
+    
+    - name: Find and Upload DLL
+      shell: pwsh
+      run: |
+        $dll = Get-ChildItem -Recurse -Filter "ReShade.dll" | Where-Object { $_.FullName -like "*Release*" } | Select-Object -First 1
+        if ($dll) {
+          Write-Host "Found DLL: $($dll.FullName)" -ForegroundColor Green
+          Copy-Item $dll.FullName "ReShade_Thalixte_x86.dll"
+        } else {
+          # 查找任何dll
+          $dll = Get-ChildItem -Recurse -Filter "*.dll" | Where-Object { $_.Name -like "*ReShade*" -or $_.Name -like "*d3d9*" } | Select-Object -First 1
+          if ($dll) {
+            Copy-Item $dll.FullName "ReShade_Thalixte_x86.dll"
+          }
+        }
+    
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
       with:
         name: ReShade-Thalixte-x86
-        path: bin\Win32\Release\ReShade.dll
+        path: ReShade_Thalixte_x86.dll

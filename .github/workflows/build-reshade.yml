@@ -49,17 +49,16 @@ jobs:
             $modified = $true
           }
           
-          # 3. 删除 OpenGL 文件引用（关键！）
+          # 3. 删除 OpenGL 文件引用
           if ($content -match 'source\\opengl\\') {
             $content = $content -replace '<ClCompile Include="source\\opengl\\[^"]*"\s*/?>\s*', ''
             $content = $content -replace '<ClInclude Include="source\\opengl\\[^"]*"\s*/?>\s*', ''
             $modified = $true
-            Write-Host "Removed OpenGL from $($_.Name)"
           }
           
-          # 4. 添加禁用宏
+          # 4. 添加禁用宏到所有 PreprocessorDefinitions
           if ($content -match '<PreprocessorDefinitions>') {
-            $content = $content -replace '(<PreprocessorDefinitions>)([^<]*)(</PreprocessorDefinitions>)', '$1RESHADE_NO_D3D12;RESHADE_NO_OPENGL;$2$3'
+            $content = $content -replace '(<PreprocessorDefinitions>)([^<]*)(</PreprocessorDefinitions>)', '$1RESHADE_NO_D3D12%3BRESHADE_NO_OPENGL%3B$2$3'
             $modified = $true
           }
           
@@ -79,7 +78,6 @@ jobs:
           /p:Configuration=Release ^
           /p:Platform="32-bit" ^
           /p:PlatformToolset=v143 ^
-          /p:PreprocessorDefinitions=RESHADE_NO_D3D12;RESHADE_NO_OPENGL ^
           /t:"ReShade";"ReShade FX";"gl3w";"ImGui";"MinHook";"stb";"FXC";"Injector" ^
           /m
 

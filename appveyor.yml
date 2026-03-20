@@ -1,0 +1,81 @@
+version: 1.0.{build}
+
+# 使用 VS2019，自带 Windows SDK 10.0.17763.0（与 ReShade 4.9.1 兼容）
+image: Visual Studio 2019
+
+platform: Win32
+configuration: Release
+
+# 克隆前准备
+init:
+  - git config --global core.autocrlf true
+
+# 安装步骤（处理 gl3w 和依赖）
+install:
+  # 1. 正常克隆所有子模块（MinHook, ImGui 等）
+  - git submodule update --init --recursive
+  
+  # 2. 删除 gl3w 子模块（避免 403 错误）
+  - rd /s /q deps\gl3w
+  
+  # 3. 创建假的 gl3w 文件（最小化实现）
+  - mkdir deps\gl3w\src
+  - mkdir deps\gl3w\include\GL
+  
+  # 创建 gl3w.c
+  - echo // Dummy gl3w.c > deps\gl3w\src\gl3w.c
+  - echo #include ^<windows.h^> >> deps\gl3w\src\gl3w.c
+  - echo int gl3wInit(void) { return 0; } >> deps\gl3w\src\gl3w.c
+  - echo void gl3wShutdown(void) {} >> deps\gl3w\src\gl3w.c
+  
+  # 创建 gl3w.h
+  - echo #ifndef GL3W_H > deps\gl3w\include\GL\gl3w.h
+  - echo #define GL3W_H >> deps\gl3w\include\GL\gl3w.h
+  - echo #include ^<GL/glcorearb.h^> >> deps\gl3w\include\GL\gl3w.h
+  - echo int gl3wInit(void); >> deps\gl3w\include\GL\gl3w.h
+  - echo void gl3wShutdown(void); >> deps\gl3w\include\GL\gl3w.h
+  - echo #endif >> deps\gl3w\include\GL\gl3w.h
+  
+  # 创建 glcorearb.h（最小 OpenGL 定义）
+  - echo #ifndef GLCOREARB_H > deps\gl3w\include\GL\glcorearb.h
+  - echo #define GLCOREARB_H >> deps\gl3w\include\GL\glcorearb.h
+  - echo typedef unsigned int GLenum; >> deps\gl3w\include\GL\glcorearb.h
+  - echo typedef unsigned int GLuint; >> deps\gl3w\include\GL\glcorearb.h
+  - echo #endif >> deps\gl3w\include\GL\glcorearb.h
+  
+  # 创建空的 gl3w_gen.py
+  - echo import sys > deps\gl3w\gl3w_gen.py
+  - echo sys.exit(0) >> deps\gl3w\gl3w_gen.py
+
+# 构建前修改项目文件（可选：如果编译 D3D12 报错，取消下面注释）
+before_build:
+  # 如需禁用 D3D12/OpenGL，取消下面注释：
+  # - ps: Get-ChildItem -Recurse -Filter "*.vcxproj" | ForEach-Object { (Get-Content $_.FullName) -replace '<ClCompile Include="source\\d3d12\\[^"]*" />', '' -replace '<ClInclude Include="source\\d3d12\\[^"]*" />', '' -replace '<ClCompile Include="source\\opengl\\[^"]*" />', '' -replace '<ClInclude Include="source\\opengl\\[^"]*" />', '' | Set-Content $_.FullName }
+
+build:
+  project: ReShade.sln
+  parallel: true
+  verbosity: minimal
+
+# 收集输出文件
+after_build:
+  - mkdir artifacts
+  - copy bin\Win32\Release\ReShade32.dll artifacts\ReShade32-Thalixte.dll
+  - copy bin\Win32\Release\ReShade32.pdb artifacts\ReShade32-Thalixte.pdb 2>nul || exit 0
+
+artifacts:
+  - path: artifacts\ReShade32-Thalixte.dll
+    name: ReShade32-DLL
+  - path: artifacts\ReShade32-Thalixte.pdb
+    name: ReShade32-PDB
+
+# 每次 push 到 main 分支时触发
+branches:
+  only:
+    - main
+    - master
+
+# 启用缓存加速下次构建
+cache:
+  - C:\ProgramData\chocolatey\bin -> appveyor.yml
+  - C:\ProgramData\chocolatey\lib -> appveyor.yml  

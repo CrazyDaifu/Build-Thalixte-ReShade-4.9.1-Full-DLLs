@@ -1,0 +1,104 @@
+# GitHub Actions 编译Thalixte ReShade 4.9.1全DLL
+name: Build Thalixte ReShade 4.9.1 Full DLLs
+
+# 触发条件：手动触发（workflow_dispatch）+ 推送代码触发（可选）
+on:
+  workflow_dispatch:  # 手动触发（推荐，避免自动编译）
+  push:
+    branches: [master]  # 推送master分支时自动编译（可选）
+
+# 作业配置：Windows环境编译（ReShade仅支持Windows编译）
+jobs:
+  build-windows:
+    runs-on: windows-2022  # 使用VS2022环境（兼容4.9.1编译）
+    steps:
+      # 步骤1：检出Thalixte ReShade源码
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive  # 拉取子模块（ReShade依赖的第三方库）
+          fetch-depth: 0
+
+      # 步骤2：配置CMake环境
+      - name: Setup CMake
+        uses: lukka/get-cmake@v3.28.0
+        with:
+          cmakeVersion: 3.20.0  # 4.9.1适配的CMake版本
+
+      # 步骤3：配置Visual Studio构建工具
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          toolset: 14.29  # VS2019工具集（4.9.1最佳兼容版本）
+          arch: x86,x64   # 同时编译32位和64位
+
+      # 步骤4：创建构建目录并生成项目文件
+      - name: Configure CMake
+        run: |
+          # 创建build目录
+          mkdir -p build
+          cd build
+          # 生成CMake项目（编译所有API的ReShade DLL）
+          cmake .. `
+            -G "Visual Studio 16 2019" `  # 指定VS2019生成器
+            -A Win32 `                     # 先编译32位
+            -DCMAKE_BUILD_TYPE=Release `   # 发布版本
+            -DRESHADE_BUILD_SETUP=OFF `    # 不编译安装程序
+            -DRESHADE_BUILD_D3D9=ON `      # 编译DX9（L4D2/起源引擎核心）
+            -DRESHADE_BUILD_D3D10=ON `     # 编译DX10
+            -DRESHADE_BUILD_D3D11=ON `     # 编译DX11
+            -DRESHADE_BUILD_D3D12=ON `     # 编译DX12
+            -DRESHADE_BUILD_OPENGL=ON `    # 编译OpenGL
+            -DRESHADE_BUILD_VULKAN=ON `    # 编译Vulkan
+            -DRESHADE_BUILD_DIRECTINPUT=ON # 编译输入模块（可选）
+
+          # 生成64位项目文件
+          cmake .. `
+            -G "Visual Studio 16 2019" `
+            -A x64 `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DRESHADE_BUILD_SETUP=OFF `
+            -DRESHADE_BUILD_D3D9=ON `
+            -DRESHADE_BUILD_D3D10=ON `
+            -DRESHADE_BUILD_D3D11=ON `
+            -DRESHADE_BUILD_D3D12=ON `
+            -DRESHADE_BUILD_OPENGL=ON `
+            -DRESHADE_BUILD_VULKAN=ON `
+            -DRESHADE_BUILD_DIRECTINPUT=ON `
+            --build . --config Release --target ALL_BUILD
+
+      # 步骤5：编译32位Release版本
+      - name: Build 32-bit Release
+        run: |
+          cd build
+          cmake --build . --config Release --target ALL_BUILD -j 4  # -j 4 多线程编译
+
+      # 步骤6：编译64位Release版本
+      - name: Build 64-bit Release
+        run: |
+          cd build
+          cmake --build . --config Release --target ALL_BUILD -A x64 -j 4
+
+      # 步骤7：整理编译产物（分类32/64位DLL）
+      - name: Organize Build Output
+        run: |
+          # 创建输出目录
+          mkdir -p ReShade_Thalixte_4.9.1/32bit
+          mkdir -p ReShade_Thalixte_4.9.1/64bit
+
+          # 复制32位DLL
+          copy build/Release/*.dll ReShade_Thalixte_4.9.1/32bit/
+          # 复制64位DLL
+          copy build/x64/Release/*.dll ReShade_Thalixte_4.9.1/64bit/
+
+          # 列出所有文件（验证）
+          dir ReShade_Thalixte_4.9.1/32bit
+          dir ReShade_Thalixte_4.9.1/64bit
+
+      # 步骤8：上传编译产物为Artifact（可下载）
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Thalixte_ReShade_4.9.1_Full_DLLs
+          path: ReShade_Thalixte_4.9.1/
+          retention-days: 90  # 产物保留90天  

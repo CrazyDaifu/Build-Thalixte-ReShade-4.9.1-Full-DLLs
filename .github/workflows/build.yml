@@ -19,58 +19,30 @@ jobs:
       with:
         arch: x86
     
-    - name: Find Solution File
+    - name: Build with default configuration
       shell: pwsh
       run: |
-        # 查找解决方案文件
-        $sln = Get-ChildItem -Recurse -Filter "*.sln" | Select-Object -First 1
-        if ($sln) {
-          Write-Host "Found solution: $($sln.FullName)" -ForegroundColor Green
-          echo "SLN_PATH=$($sln.FullName)" >> $env:GITHUB_ENV
-        } else {
-          # 查找vcxproj
-          $proj = Get-ChildItem -Recurse -Filter "ReShade.vcxproj" | Select-Object -First 1
-          if ($proj) {
-            Write-Host "Found project: $($proj.FullName)" -ForegroundColor Green
-            echo "PROJ_PATH=$($proj.FullName)" >> $env:GITHUB_ENV
-          } else {
-            Write-Error "No solution or project file found!"
-            exit 1
-          }
+        # 先列出可用的配置
+        msbuild ReShade.sln /p:Configuration=Release /p:Platform=x86 2>&1 | Tee-Object build.log
+        if ($LASTEXITCODE -ne 0) {
+          # 尝试Win32
+          msbuild ReShade.sln /p:Configuration=Release /p:Platform=Win32
+        }
+        if ($LASTEXITCODE -ne 0) {
+          # 尝试不带平台参数（使用默认）
+          msbuild ReShade.sln /p:Configuration=Release
         }
     
-    - name: Restore NuGet packages
+    - name: Find DLL
       shell: pwsh
       run: |
-        if (Test-Path "${{ env.SLN_PATH }}") {
-          nuget restore "${{ env.SLN_PATH }}"
-        }
-    
-    - name: Build Win32
-      shell: pwsh
-      run: |
-        if (Test-Path "${{ env.SLN_PATH }}") {
-          msbuild "${{ env.SLN_PATH }}" /p:Configuration=Release /p:Platform=Win32 /p:OutDir=bin\Release\
-        } elseif (Test-Path "${{ env.PROJ_PATH }}") {
-          msbuild "${{ env.PROJ_PATH }}" /p:Configuration=Release /p:Platform=Win32 /p:OutDir=bin\Release\
-        }
-    
-    - name: Find and Upload DLL
-      shell: pwsh
-      run: |
-        $dll = Get-ChildItem -Recurse -Filter "ReShade.dll" | Where-Object { $_.FullName -like "*Release*" } | Select-Object -First 1
+        $dll = Get-ChildItem -Recurse -Filter "ReShade.dll" | Select-Object -First 1
         if ($dll) {
-          Write-Host "Found DLL: $($dll.FullName)" -ForegroundColor Green
           Copy-Item $dll.FullName "ReShade_Thalixte_x86.dll"
-        } else {
-          # 查找任何dll
-          $dll = Get-ChildItem -Recurse -Filter "*.dll" | Where-Object { $_.Name -like "*ReShade*" -or $_.Name -like "*d3d9*" } | Select-Object -First 1
-          if ($dll) {
-            Copy-Item $dll.FullName "ReShade_Thalixte_x86.dll"
-          }
+          Write-Host "Found: $($dll.FullName)" -ForegroundColor Green
         }
     
-    - name: Upload Artifact
+    - name: Upload
       uses: actions/upload-artifact@v4
       with:
         name: ReShade-Thalixte-x86

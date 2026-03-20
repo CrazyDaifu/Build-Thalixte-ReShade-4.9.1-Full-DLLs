@@ -15,7 +15,17 @@ jobs:
       with:
         submodules: recursive
 
-    - name: Remove gl3w submodule and create minimal files
+    - name: Install Windows SDK 10.0.17763.0 (compatible)
+      shell: powershell
+      run: |
+        choco install windows-sdk-10.1 -y --version=10.0.17763
+        # 或者使用 Visual Studio Installer 添加组件
+        & "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vs_installer.exe" modify `
+          --installPath "C:\Program Files\Microsoft Visual Studio\2022\Enterprise" `
+          --add Microsoft.VisualStudio.Component.Windows10SDK.17763 `
+          --quiet --norestart
+
+    - name: Remove gl3w submodule and create dummy files
       shell: cmd
       run: |
         rmdir /s /q deps\gl3w
@@ -29,43 +39,19 @@ jobs:
         echo import sys > deps\gl3w\gl3w_gen.py
         echo sys.exit(0) >> deps\gl3w\gl3w_gen.py
 
-    - name: Fix project files (Remove D3D12, OpenGL, and fix SDK)
+    - name: Fix project files and force SDK version
       shell: powershell
       run: |
         Get-ChildItem -Recurse -Filter "*.vcxproj" | ForEach-Object {
           $content = Get-Content $_.FullName -Raw
-          $modified = $false
-          
-          # 1. 删除 WindowsTargetPlatformVersion 限制
-          if ($content -match '<WindowsTargetPlatformVersion>[^<]+</WindowsTargetPlatformVersion>') {
-            $content = $content -replace '<WindowsTargetPlatformVersion>[^<]+</WindowsTargetPlatformVersion>\s*', ''
-            $modified = $true
-          }
-          
-          # 2. 删除 D3D12 文件引用
-          if ($content -match 'source\\d3d12\\') {
-            $content = $content -replace '<ClCompile Include="source\\d3d12\\[^"]*"\s*/?>\s*', ''
-            $content = $content -replace '<ClInclude Include="source\\d3d12\\[^"]*"\s*/?>\s*', ''
-            $modified = $true
-          }
-          
-          # 3. 删除 OpenGL 文件引用
-          if ($content -match 'source\\opengl\\') {
-            $content = $content -replace '<ClCompile Include="source\\opengl\\[^"]*"\s*/?>\s*', ''
-            $content = $content -replace '<ClInclude Include="source\\opengl\\[^"]*"\s*/?>\s*', ''
-            $modified = $true
-          }
-          
-          # 4. 添加禁用宏到所有 PreprocessorDefinitions
-          if ($content -match '<PreprocessorDefinitions>') {
-            $content = $content -replace '(<PreprocessorDefinitions>)([^<]*)(</PreprocessorDefinitions>)', '$1RESHADE_NO_D3D12%3BRESHADE_NO_OPENGL%3B$2$3'
-            $modified = $true
-          }
-          
-          if ($modified) {
-            Set-Content $_.FullName $content -NoNewline
-            Write-Host "Fixed: $($_.Name)"
-          }
+          # 强制设置 SDK 版本为 10.0.17763.0
+          $content = $content -replace '<WindowsTargetPlatformVersion>[^<]+</WindowsTargetPlatformVersion>', '<WindowsTargetPlatformVersion>10.0.17763.0</WindowsTargetPlatformVersion>'
+          # 删除 D3D12 和 OpenGL 文件
+          $content = $content -replace '<ClCompile Include="source\\d3d12\\[^"]*"\s*/?>\s*', ''
+          $content = $content -replace '<ClInclude Include="source\\d3d12\\[^"]*"\s*/?>\s*', ''
+          $content = $content -replace '<ClCompile Include="source\\opengl\\[^"]*"\s*/?>\s*', ''
+          $content = $content -replace '<ClInclude Include="source\\opengl\\[^"]*"\s*/?>\s*', ''
+          Set-Content $_.FullName $content -NoNewline
         }
 
     - name: Setup MSBuild
@@ -78,6 +64,7 @@ jobs:
           /p:Configuration=Release ^
           /p:Platform="32-bit" ^
           /p:PlatformToolset=v143 ^
+          /p:WindowsTargetPlatformVersion=10.0.17763.0 ^
           /t:"ReShade";"ReShade FX";"gl3w";"ImGui";"MinHook";"stb";"FXC";"Injector" ^
           /m
 

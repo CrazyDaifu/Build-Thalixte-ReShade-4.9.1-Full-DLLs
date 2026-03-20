@@ -15,16 +15,7 @@ jobs:
       with:
         submodules: recursive
 
-    - name: Install Windows SDK 10.0.19041.0 (Win10 2004)
-      shell: powershell
-      run: |
-        $url = "https://go.microsoft.com/fwlink/?linkid=2120843"  # Win10 SDK 2004 (19041)
-        $output = "C:\temp\winsdk.exe"
-        New-Item -ItemType Directory -Force -Path "C:\temp"
-        Invoke-WebRequest -Uri $url -OutFile $output
-        Start-Process -FilePath $output -ArgumentList "/quiet /norestart" -Wait
-
-    - name: Remove gl3w submodule and create dummy files
+    - name: Remove gl3w submodule and create minimal files
       shell: cmd
       run: |
         rmdir /s /q deps\gl3w
@@ -38,13 +29,44 @@ jobs:
         echo import sys > deps\gl3w\gl3w_gen.py
         echo sys.exit(0) >> deps\gl3w\gl3w_gen.py
 
-    - name: Fix SDK version in project files
+    - name: Fix project files (Remove D3D12, OpenGL, and fix SDK)
       shell: powershell
       run: |
         Get-ChildItem -Recurse -Filter "*.vcxproj" | ForEach-Object {
           $content = Get-Content $_.FullName -Raw
-          $content = $content -replace '<WindowsTargetPlatformVersion>[^<]+</WindowsTargetPlatformVersion>', '<WindowsTargetPlatformVersion>10.0.19041.0</WindowsTargetPlatformVersion>'
-          Set-Content $_.FullName $content -NoNewline
+          $modified = $false
+          
+          # 1. 删除 WindowsTargetPlatformVersion 限制
+          if ($content -match '<WindowsTargetPlatformVersion>[^<]+</WindowsTargetPlatformVersion>') {
+            $content = $content -replace '<WindowsTargetPlatformVersion>[^<]+</WindowsTargetPlatformVersion>\s*', ''
+            $modified = $true
+          }
+          
+          # 2. 删除 D3D12 文件引用
+          if ($content -match 'source\\d3d12\\') {
+            $content = $content -replace '<ClCompile Include="source\\d3d12\\[^"]*"\s*/?>\s*', ''
+            $content = $content -replace '<ClInclude Include="source\\d3d12\\[^"]*"\s*/?>\s*', ''
+            $modified = $true
+          }
+          
+          # 3. 删除 OpenGL 文件引用（关键！）
+          if ($content -match 'source\\opengl\\') {
+            $content = $content -replace '<ClCompile Include="source\\opengl\\[^"]*"\s*/?>\s*', ''
+            $content = $content -replace '<ClInclude Include="source\\opengl\\[^"]*"\s*/?>\s*', ''
+            $modified = $true
+            Write-Host "Removed OpenGL from $($_.Name)"
+          }
+          
+          # 4. 添加禁用宏
+          if ($content -match '<PreprocessorDefinitions>') {
+            $content = $content -replace '(<PreprocessorDefinitions>)([^<]*)(</PreprocessorDefinitions>)', '$1RESHADE_NO_D3D12;RESHADE_NO_OPENGL;$2$3'
+            $modified = $true
+          }
+          
+          if ($modified) {
+            Set-Content $_.FullName $content -NoNewline
+            Write-Host "Fixed: $($_.Name)"
+          }
         }
 
     - name: Setup MSBuild
@@ -57,7 +79,7 @@ jobs:
           /p:Configuration=Release ^
           /p:Platform="32-bit" ^
           /p:PlatformToolset=v143 ^
-          /p:WindowsTargetPlatformVersion=10.0.19041.0 ^
+          /p:PreprocessorDefinitions=RESHADE_NO_D3D12;RESHADE_NO_OPENGL ^
           /t:"ReShade";"ReShade FX";"gl3w";"ImGui";"MinHook";"stb";"FXC";"Injector" ^
           /m
 

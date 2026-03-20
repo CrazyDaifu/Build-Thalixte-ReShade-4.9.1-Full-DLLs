@@ -18,6 +18,19 @@ jobs:
     - name: Setup MSBuild
       uses: microsoft/setup-msbuild@v2
 
+    - name: Fix Windows SDK version in all projects
+      shell: powershell
+      run: |
+        Get-ChildItem -Recurse -Filter "*.vcxproj" | ForEach-Object {
+          $content = Get-Content $_.FullName -Raw
+          $original = $content
+          $content = $content -replace '10\.0\.17763\.0', '10.0.20348.0'
+          if ($content -ne $original) {
+            Set-Content $_.FullName $content -NoNewline
+            Write-Host "Fixed: $($_.FullName)"
+          }
+        }
+
     - name: Create dummy gl3w_gen.py
       shell: cmd
       run: |

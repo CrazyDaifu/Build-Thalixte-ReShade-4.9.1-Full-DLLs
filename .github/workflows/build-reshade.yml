@@ -1,82 +1,85 @@
-name: Build Thalixte ReShade 4.9.1 Full DLLs
+name: Build Thalixte ReShade 32-bit Only
+
 on:
-  workflow_dispatch:
   push:
-    branches: [ master ]
+    branches: [ main, master ]
+  workflow_dispatch:
 
 jobs:
-  build-reshade:
-    runs-on: windows-2022
-    defaults:
-      run:
-        shell: powershell
-        working-directory: ${{ github.workspace }}
+  build:
+    runs-on: windows-latest
+    
     steps:
-      # Step 1: Checkout full source code with all submodules
-      - name: Checkout Source Code
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          fetch-depth: 0
-          clean: true
+    - name: Checkout with submodules
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
 
-      # Step 2: Setup Python for gl3w dependency generation
-      - name: Setup Python 3.10
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-          architecture: 'x64'
+    - name: Install Windows SDK 10.0.19041.0 (Win10 2004)
+      shell: powershell
+      run: |
+        $url = "https://go.microsoft.com/fwlink/?linkid=2120843"  # Win10 SDK 2004 (19041)
+        $output = "C:\temp\winsdk.exe"
+        New-Item -ItemType Directory -Force -Path "C:\temp"
+        Invoke-WebRequest -Uri $url -OutFile $output
+        Start-Process -FilePath $output -ArgumentList "/quiet /norestart" -Wait
 
-      # Step 3: Generate gl3w binding code (required for ReShade 4.x build)
-      - name: Generate gl3w Dependencies
-        run: |
-          if (Test-Path -Path "deps/gl3w") {
-            Set-Location deps/gl3w
-            python gl3w_gen.py
-            Write-Host "gl3w code generated successfully"
-          } else {
-            Write-Host "gl3w directory not found, skip generation (submodule may be missing)"
-            exit 1
+    - name: Remove gl3w submodule and create dummy files
+      shell: cmd
+      run: |
+        rmdir /s /q deps\gl3w
+        mkdir deps\gl3w\src
+        mkdir deps\gl3w\include\GL
+        echo // Dummy > deps\gl3w\src\gl3w.c
+        echo #include ^<windows.h^> > deps\gl3w\include\GL\gl3w.h
+        echo typedef unsigned int GLenum; >> deps\gl3w\include\GL\gl3w.h
+        echo typedef unsigned int GLuint; >> deps\gl3w\include\GL\gl3w.h
+        echo int gl3wInit(void) { return 0; } >> deps\gl3w\src\gl3w.c
+        echo import sys > deps\gl3w\gl3w_gen.py
+        echo sys.exit(0) >> deps\gl3w\gl3w_gen.py
+
+    - name: Fix SDK version in project files
+      shell: powershell
+      run: |
+        Get-ChildItem -Recurse -Filter "*.vcxproj" | ForEach-Object {
+          $content = Get-Content $_.FullName -Raw
+          $content = $content -replace '<WindowsTargetPlatformVersion>[^<]+</WindowsTargetPlatformVersion>', '<WindowsTargetPlatformVersion>10.0.19041.0</WindowsTargetPlatformVersion>'
+          Set-Content $_.FullName $content -NoNewline
+        }
+
+    - name: Setup MSBuild
+      uses: microsoft/setup-msbuild@v2
+
+    - name: Build ReShade 32-bit
+      shell: cmd
+      run: |
+        msbuild ReShade.sln ^
+          /p:Configuration=Release ^
+          /p:Platform="32-bit" ^
+          /p:PlatformToolset=v143 ^
+          /p:WindowsTargetPlatformVersion=10.0.19041.0 ^
+          /t:"ReShade";"ReShade FX";"gl3w";"ImGui";"MinHook";"stb";"FXC";"Injector" ^
+          /m
+
+    - name: Collect 32-bit DLLs
+      shell: powershell
+      run: |
+        New-Item -ItemType Directory -Force -Path "output_32bit"
+        $paths = @("bin\Win32\Release\ReShade32.dll","bin\32-bit\Release\ReShade32.dll","bin\Release\Win32\ReShade32.dll")
+        foreach ($p in $paths) {
+          if (Test-Path $p) {
+            Copy-Item $p "output_32bit\"
+            Write-Host "Found: $p"
           }
+        }
+        if (-not (Test-Path "output_32bit\ReShade32.dll")) {
+          Get-ChildItem -Path "bin" -Recurse | Select-Object FullName
+          exit 1
+        }
 
-      # Step 4: Setup MSBuild for Visual Studio 2022
-      - name: Setup MSBuild
-        uses: microsoft/setup-msbuild@v2
-        with:
-          vs-version: '[17.0,18.0)'
-          msbuild-architecture: x64
-
-      # Step 5: Build 32-bit (Win32) Release
-      - name: Build 32-bit Release
-        run: |
-          msbuild ReShade.sln /t:Build /p:Configuration=Release /p:Platform=Win32 /p:PreferredToolArchitecture=x64 /m:8
-          Write-Host "32-bit build completed"
-
-      # Step 6: Build 64-bit (x64) Release
-      - name: Build 64-bit Release
-        run: |
-          msbuild ReShade.sln /t:Build /p:Configuration=Release /p:Platform=x64 /p:PreferredToolArchitecture=x64 /m:8
-          Write-Host "64-bit build completed"
-
-      # Step 7: Organize build artifacts
-      - name: Organize Artifacts
-        run: |
-          $outputRoot = "Thalixte_ReShade_4.9.1_Full_DLLs"
-          New-Item -ItemType Directory -Force -Path "$outputRoot/32bit"
-          New-Item -ItemType Directory -Force -Path "$outputRoot/64bit"
-          
-          Copy-Item -Path "bin/Win32/Release/*.dll" -Destination "$outputRoot/32bit/" -Force
-          Copy-Item -Path "bin/x64/Release/*.dll" -Destination "$outputRoot/64bit/" -Force
-          
-          Write-Host "===== 32-bit Artifacts ====="
-          Get-ChildItem "$outputRoot/32bit"
-          Write-Host "===== 64-bit Artifacts ====="
-          Get-ChildItem "$outputRoot/64bit"
-
-      # Step 8: Upload build artifacts
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: Thalixte_ReShade_4.9.1_Full_DLLs
-          path: Thalixte_ReShade_4.9.1_Full_DLLs/
-          retention-days: 90
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: Thalixte-ReShade-32bit
+        path: output_32bit/
+        retention-days: 30

@@ -7,7 +7,7 @@ on:
 
 jobs:
   build:
-    runs-on: windows-latest
+    runs-on: windows-2019  # 使用 2019，自带 10.0.17763.0 SDK，与 ReShade 4.9.1 兼容
     
     steps:
     - name: Checkout with submodules
@@ -29,41 +29,8 @@ jobs:
         echo import sys > deps\gl3w\gl3w_gen.py
         echo sys.exit(0) >> deps\gl3w\gl3w_gen.py
 
-    - name: Fix vcxproj files (Remove SDK and D3D12)
-      shell: powershell
-      run: |
-        Get-ChildItem -Recurse -Filter "*.vcxproj" | ForEach-Object {
-          $content = Get-Content $_.FullName -Raw
-          $modified = $false
-          
-          # 1. 删除 WindowsTargetPlatformVersion 行（包括 Global 和 Configuration）
-          if ($content -match '<WindowsTargetPlatformVersion>[^<]+</WindowsTargetPlatformVersion>') {
-            $content = $content -replace '<WindowsTargetPlatformVersion>[^<]+</WindowsTargetPlatformVersion>\s*', ''
-            $modified = $true
-          }
-          
-          # 2. 删除 D3D12 文件引用（包括 d3d12 和 dxgi 中可能包含 D3D12 的部分）
-          # 先移除 d3d12 目录下的所有文件
-          if ($content -match 'Include="source\\d3d12\\[^"]*"') {
-            $content = $content -replace '<ClCompile Include="source\\d3d12\\[^"]*"\s*/?>\s*', ''
-            $content = $content -replace '<ClInclude Include="source\\d3d12\\[^"]*"\s*/?>\s*', ''
-            $modified = $true
-          }
-          
-          # 3. 添加 NO_D3D12 宏到所有 PreprocessorDefinitions
-          if ($content -match '<PreprocessorDefinitions>') {
-            $content = $content -replace '(<PreprocessorDefinitions>)([^<]*)(</PreprocessorDefinitions>)', '$1RESHADE_NO_D3D12;RESHADE_NO_D3D12ON7;$2$3'
-            $modified = $true
-          }
-          
-          if ($modified) {
-            Set-Content $_.FullName $content -NoNewline
-            Write-Host "Fixed: $($_.Name)"
-          }
-        }
-
-    - name: Setup MSBuild
-      uses: microsoft/setup-msbuild@v2
+    - name: Setup MSBuild (VS2019)
+      uses: microsoft/setup-msbuild@v1
 
     - name: Build ReShade 32-bit
       shell: cmd
@@ -71,8 +38,7 @@ jobs:
         msbuild ReShade.sln ^
           /p:Configuration=Release ^
           /p:Platform="32-bit" ^
-          /p:PlatformToolset=v143 ^
-          /p:PreprocessorDefinitions=RESHADE_NO_D3D12 ^
+          /p:PlatformToolset=v142 ^  :: VS2019 工具集
           /t:"ReShade";"ReShade FX";"gl3w";"ImGui";"MinHook";"stb";"FXC";"Injector" ^
           /m
 

@@ -1,4 +1,4 @@
-name: Build Thalixte ReShade 32-bit Only (No OpenGL)
+name: Build Thalixte ReShade 32-bit Only
 
 on:
   push:
@@ -18,17 +18,12 @@ jobs:
     - name: Setup MSBuild
       uses: microsoft/setup-msbuild@v2
 
-    - name: Disable gl3w generation (bypass 403 error)
-      shell: powershell
+    - name: Create dummy gl3w_gen.py
+      shell: cmd
       run: |
-        $dummyScript = @'
-#!/usr/bin/env python
-import sys
-print("gl3w_gen.py skipped - using pre-generated files")
-sys.exit(0)
-'@
-        Set-Content -Path "deps/gl3w/gl3w_gen.py" -Value $dummyScript -Encoding UTF8
-        Write-Host "gl3w_gen.py disabled"
+        echo import sys > deps/gl3w/gl3w_gen.py
+        echo print("gl3w_gen.py skipped") >> deps/gl3w/gl3w_gen.py
+        echo sys.exit(0) >> deps/gl3w/gl3w_gen.py
 
     - name: Build ReShade 32-bit
       shell: cmd
@@ -38,7 +33,7 @@ sys.exit(0)
           /p:Platform="32-bit" ^
           /p:WindowsTargetPlatformVersion=10.0.22000.0 ^
           /p:PlatformToolset=v143 ^
-          /t:"ReShade";"ReShade FX";"ImGui";"MinHook";"stb";"FXC";"Injector" ^
+          /t:"ReShade";"ReShade FX";"gl3w";"ImGui";"MinHook";"stb";"FXC";"Injector" ^
           /m ^
           /verbosity:minimal
 
